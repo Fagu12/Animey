@@ -1,0 +1,7 @@
+{
+  "name": "Animey",
+  "description": "A modern, provider-agnostic native anime streaming application with clean modular architecture and seamless tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
