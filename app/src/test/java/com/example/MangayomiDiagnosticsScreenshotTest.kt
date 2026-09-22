@@ -25,9 +25,7 @@ class MangayomiDiagnosticsScreenshotTest {
 
     @Test
     fun mangayomi_diagnostics_screenshot() {
-        val vm = MangayomiDiagnosticsViewModel(
-            diagnostics = MangayomiRuntimeDiagnostics()
-        )
+        val vm = MangayomiDiagnosticsViewModel(autoRun = false)
 
         composeTestRule.setContent {
             AnimeyTheme(darkTheme = true) {

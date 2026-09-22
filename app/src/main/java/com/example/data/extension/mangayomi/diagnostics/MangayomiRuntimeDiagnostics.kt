@@ -14,7 +14,16 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.mozilla.javascript.Context
 import app.cash.quickjs.QuickJs
+import java.io.IOException
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
+import okhttp3.Call
+import okhttp3.EventListener
+import okhttp3.Handshake
+import okhttp3.Protocol
+import okhttp3.Response
 
 data class HttpRequestTrace(
     val requestNumber: Int,
@@ -23,7 +32,11 @@ data class HttpRequestTrace(
     val httpStatus: Int,
     val contentType: String,
     val responseBytes: Int,
-    val bodyPrefix300: String
+    val bodyPrefix300: String,
+    val startTime: Long = 0L,
+    val endTime: Long = 0L,
+    val elapsedMs: Long = 0L,
+    val timeoutPhase: String = "NONE"
 )
 
 data class SearchItemResult(
@@ -63,11 +76,185 @@ data class RuntimeDiagnosticsResult(
     val rhinoErrorSummary: String
 )
 
+data class NativeUrlTestResult(
+    val testName: String = "",
+    val url: String = "",
+    val status: Int = 0,
+    val responseBytes: Int = 0,
+    val startTime: Long = 0L,
+    val endTime: Long = 0L,
+    val elapsedMs: Long = 0L,
+    val timeoutPhase: String = "NONE",
+    val exceptionClass: String = "",
+    val exceptionMessage: String = "",
+    val rootCauseClass: String = "",
+    val rootCauseMessage: String = ""
+)
+
+/**
+ * EventListener that instruments OkHttp lifecycle events to accurately distinguish
+ * DNS, connect, TLS handshake, write, and read timeouts.
+ */
+class OkHttpCallTracker : EventListener() {
+    var dnsStartTime = 0L
+    var dnsEndTime = 0L
+    var connectStartTime = 0L
+    var secureConnectStartTime = 0L
+    var secureConnectEndTime = 0L
+    var connectEndTime = 0L
+    var requestHeadersStartTime = 0L
+    var requestHeadersEndTime = 0L
+    var responseHeadersStartTime = 0L
+    var responseHeadersEndTime = 0L
+    var responseBodyStartTime = 0L
+    var responseBodyEndTime = 0L
+    var callFailedTime = 0L
+
+    var lastPhase = "NOT_STARTED"
+    var detectedPhase = "NONE"
+
+    override fun dnsStart(call: Call, domainName: String) {
+        dnsStartTime = System.currentTimeMillis()
+        lastPhase = "DNS"
+    }
+
+    override fun dnsEnd(call: Call, domainName: String, inetAddressList: List<InetAddress>) {
+        dnsEndTime = System.currentTimeMillis()
+        lastPhase = "DNS_RESOLVED"
+    }
+
+    override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
+        connectStartTime = System.currentTimeMillis()
+        lastPhase = "CONNECT"
+    }
+
+    override fun secureConnectStart(call: Call) {
+        secureConnectStartTime = System.currentTimeMillis()
+        lastPhase = "TLS_HANDSHAKE"
+    }
+
+    override fun secureConnectEnd(call: Call, handshake: Handshake?) {
+        secureConnectEndTime = System.currentTimeMillis()
+        lastPhase = "TLS_CONNECTED"
+    }
+
+    override fun connectEnd(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?) {
+        connectEndTime = System.currentTimeMillis()
+        lastPhase = "CONNECTED"
+    }
+
+    override fun connectFailed(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?, ioe: IOException) {
+        lastPhase = if (secureConnectStartTime > 0 && secureConnectEndTime == 0L) "TLS/handshake timeout" else "connect timeout"
+        detectedPhase = lastPhase
+    }
+
+    override fun requestHeadersStart(call: Call) {
+        requestHeadersStartTime = System.currentTimeMillis()
+        lastPhase = "SENDING_REQUEST_HEADERS"
+    }
+
+    override fun requestHeadersEnd(call: Call, request: Request) {
+        requestHeadersEndTime = System.currentTimeMillis()
+        lastPhase = "REQUEST_HEADERS_SENT"
+    }
+
+    override fun responseHeadersStart(call: Call) {
+        responseHeadersStartTime = System.currentTimeMillis()
+        lastPhase = "WAITING_FOR_RESPONSE_HEADERS"
+    }
+
+    override fun responseHeadersEnd(call: Call, response: Response) {
+        responseHeadersEndTime = System.currentTimeMillis()
+        lastPhase = "RESPONSE_HEADERS_RECEIVED"
+    }
+
+    override fun responseBodyStart(call: Call) {
+        responseBodyStartTime = System.currentTimeMillis()
+        lastPhase = "READING_RESPONSE_BODY"
+    }
+
+    override fun responseBodyEnd(call: Call, byteCount: Long) {
+        responseBodyEndTime = System.currentTimeMillis()
+        lastPhase = "COMPLETED"
+    }
+
+    override fun callFailed(call: Call, ioe: IOException) {
+        callFailedTime = System.currentTimeMillis()
+        detectedPhase = when (lastPhase) {
+            "DNS" -> "DNS resolution problem"
+            "CONNECT" -> "connect timeout"
+            "TLS_HANDSHAKE" -> "TLS/handshake timeout"
+            "SENDING_REQUEST_HEADERS" -> "write timeout"
+            "WAITING_FOR_RESPONSE_HEADERS", "REQUEST_HEADERS_SENT" -> "read timeout (waiting for response headers)"
+            "READING_RESPONSE_BODY" -> "read timeout (reading response body)"
+            else -> {
+                if (ioe is java.net.SocketTimeoutException) {
+                    val msg = ioe.message?.lowercase() ?: ""
+                    when {
+                        msg.contains("connect") -> "connect timeout"
+                        msg.contains("read") || msg.contains("timeout") -> "read timeout (waiting for response headers)"
+                        else -> "read timeout"
+                    }
+                } else if (ioe is java.io.InterruptedIOException) {
+                    "call timeout"
+                } else {
+                    lastPhase
+                }
+            }
+        }
+    }
+}
+
 data class LiveTestResult(
     val engine: String = "QuickJS",
     val version: String = "0.9.2",
     val nativeLib: String = "quickjs",
     val abi: String = "android",
+
+    // Direct Native OkHttp URL Variant Tests (Tasks 2 & 3)
+    val testA: NativeUrlTestResult = NativeUrlTestResult(),
+    val testB: NativeUrlTestResult = NativeUrlTestResult(),
+    val testC: NativeUrlTestResult = NativeUrlTestResult(),
+    val testD: NativeUrlTestResult = NativeUrlTestResult(),
+    val testD_Standalone: NativeUrlTestResult = NativeUrlTestResult(),
+    val testD_Bridge: NativeUrlTestResult = NativeUrlTestResult(),
+
+    // Task 4: HttpUrl.Builder inspection
+    val task4_builtUrl: String = "",
+    val task4_expectedUrl: String = "",
+    val task4_matchesExpected: Boolean = false,
+
+    // Task 5: QuickJS Encoding inspection
+    val task5_stringify: String = "",
+    val task5_encoded1: String = "",
+    val task5_encoded2: String = "",
+    val task5_matchesExpected: Boolean = false,
+
+    // Task 6: Direct vs Extension Request Comparison
+    val task6_directUrl: String = "",
+    val task6_extensionUrl: String = "",
+    val task6_urlsMatch: Boolean = false,
+    val task6_directSafeHeaders: String = "",
+    val task6_extensionSafeHeaders: String = "",
+
+    // Task 7: Compiled OkHttp Timeouts
+    val task7_connectTimeoutMs: Int = 0,
+    val task7_readTimeoutMs: Int = 0,
+    val task7_writeTimeoutMs: Int = 0,
+    val task7_callTimeoutMs: Int = 0,
+
+    // QuickJS Encoding & Bridge Inspection (Tasks 4 & 5)
+    val qjsEncodedSort: String = "",
+    val qjsSortMatchesExpected: Boolean = false,
+    val lastBridgeUrl: String = "",
+    val lastBridgeHeadersNames: String = "",
+    val lastBridgeError: String = "",
+    val lastBridgeErrorClass: String = "",
+    val lastBridgeErrorMessage: String = "",
+    val lastBridgeRootCauseClass: String = "",
+    val lastBridgeRootCauseMessage: String = "",
+    val rawGetHeaderNames: String = "",
+    val searchHeaderNames: String = "",
 
     // Stages log
     val stages: List<StageResult> = emptyList(),
@@ -119,6 +306,24 @@ data class LiveTestResult(
     val sourceException: String? = null,
     val instanceStatus: String = "NOT_RUN",
     val constructorName: String = "None",
+
+    // Runtime Introspection Fields
+    val defaultExtensionType: String = "",
+    val defaultExtensionProto: String = "",
+    val defaultExtensionMethods: String = "",
+    val sourceType: String = "",
+    val sourceProto: String = "",
+    val sourceMethods: String = "",
+    val extensionType: String = "",
+    val extensionProto: String = "",
+    val extensionMethods: String = "",
+    val sourceEqualsExtension: Boolean = false,
+    val sourceSearchType: String = "",
+    val sourceDetailType: String = "",
+    val sourceVideoType: String = "",
+    val extensionSearchType: String = "",
+    val extensionDetailType: String = "",
+    val extensionVideoType: String = "",
 
     // 3. Real Search Test & Deep Inspection
     val searchStatus: String = "NOT_RUN",
@@ -289,7 +494,17 @@ object MangayomiRuntimeDiagnostics {
                     qjs.evaluate("""
                         class Source {}
                         class Extension {}
-                        class MProvider {}
+                        class MProvider {
+                            constructor(source) {
+                                if (source) {
+                                    this.source = source;
+                                } else if (typeof mangayomiSources !== 'undefined' && Array.isArray(mangayomiSources) && mangayomiSources.length > 0) {
+                                    this.source = mangayomiSources[0];
+                                } else {
+                                    this.source = {};
+                                }
+                            }
+                        }
                         var exports = {};
                         var module = { exports: exports };
                     """.trimIndent())
@@ -317,10 +532,7 @@ object MangayomiRuntimeDiagnostics {
     }
 
     suspend fun runLiveExtensionTest(
-        okHttpClient: OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .build(),
+        okHttpClient: OkHttpClient = com.example.data.extension.mangayomi.runtime.MangayomiExecutionContext.createDefaultOkHttpClient(),
         animeDao: AnimeDao? = null,
         episodeDao: EpisodeDao? = null
     ): LiveTestResult = withContext(Dispatchers.IO) {
@@ -380,28 +592,106 @@ object MangayomiRuntimeDiagnostics {
             )
         }
 
+        var lastBridgeUrlVal = ""
+        var lastBridgeHeadersNamesVal = ""
+        var lastBridgeErrorVal = ""
+        var lastBridgeErrorClassVal = ""
+        var lastBridgeErrorMessageVal = ""
+        var lastBridgeRootCauseClassVal = ""
+        var lastBridgeRootCauseMessageVal = ""
+        var rawGetBridgeUrlVal = ""
+        var rawGetHeaderNamesVal = ""
+        var searchBridgeUrlVal = ""
+        var searchHeaderNamesVal = ""
+
         // STAGE 2: HTTP_BRIDGE_INIT
         try {
             val httpBridgeImpl = object : QuickJsHttpBridge {
                 override fun get(url: String, headersJson: String?): String {
-                    val reqBuilder = Request.Builder().url(url)
-                    reqBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    if (!headersJson.isNullOrBlankJson()) {
-                        parseJsonToMap(headersJson)?.forEach { (k, v) -> reqBuilder.header(k, v.toString()) }
+                    lastBridgeUrlVal = url
+                    val hMap = parseJsonToMap(headersJson)
+                    lastBridgeHeadersNamesVal = hMap?.keys?.joinToString(",") ?: ""
+                    if (url.contains("advanced-search")) {
+                        if (url.contains("sort=")) {
+                            searchBridgeUrlVal = url
+                            searchHeaderNamesVal = lastBridgeHeadersNamesVal
+                        } else {
+                            rawGetBridgeUrlVal = url
+                            rawGetHeaderNamesVal = lastBridgeHeadersNamesVal
+                        }
                     }
-                    val req = reqBuilder.build()
-                    return executeHttpAndFormatJson(okHttpClient, req, httpTraces, traceIndex++)
+                    return try {
+                        val reqBuilder = Request.Builder().url(url)
+                        reqBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        if (!headersJson.isNullOrBlankJson()) {
+                            hMap?.forEach { (k, v) -> reqBuilder.header(k, v.toString()) }
+                        }
+                        val req = reqBuilder.build()
+                        val resStr = executeHttpAndFormatJson(okHttpClient, req, httpTraces, traceIndex++)
+                        val map = parseJsonToMap(resStr)
+                        if (map?.get("ok") == false) {
+                            lastBridgeErrorVal = map["error"]?.toString() ?: "statusCode=${map["statusCode"]}"
+                            lastBridgeErrorClassVal = map["errorClass"]?.toString() ?: ""
+                            lastBridgeErrorMessageVal = map["errorMessage"]?.toString() ?: ""
+                            lastBridgeRootCauseClassVal = map["rootCauseClass"]?.toString() ?: ""
+                            lastBridgeRootCauseMessageVal = map["rootCauseMessage"]?.toString() ?: ""
+                        } else {
+                            lastBridgeErrorVal = ""
+                            lastBridgeErrorClassVal = ""
+                            lastBridgeErrorMessageVal = ""
+                            lastBridgeRootCauseClassVal = ""
+                            lastBridgeRootCauseMessageVal = ""
+                        }
+                        resStr
+                    } catch (e: Throwable) {
+                        AppLogger.e(TAG, "[MANGAYOMI][HTTP] NativeHttpBridge GET exception for url=$url", e)
+                        lastBridgeErrorClassVal = e.javaClass.name
+                        lastBridgeErrorMessageVal = e.message ?: ""
+                        lastBridgeRootCauseClassVal = e.cause?.javaClass?.name ?: ""
+                        lastBridgeRootCauseMessageVal = e.cause?.message ?: ""
+                        lastBridgeErrorVal = "$lastBridgeErrorClassVal: $lastBridgeErrorMessageVal"
+                        formatHttpExceptionJson(e, url, httpTraces, traceIndex++)
+                    }
                 }
 
                 override fun post(url: String, headersJson: String?, body: String?): String {
-                    val reqBuilder = Request.Builder().url(url)
-                    reqBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    val mediaType = "application/x-www-form-urlencoded".toMediaTypeOrNull()
-                    reqBuilder.post((body ?: "").toRequestBody(mediaType))
-                    if (!headersJson.isNullOrBlankJson()) {
-                        parseJsonToMap(headersJson)?.forEach { (k, v) -> reqBuilder.header(k, v.toString()) }
+                    lastBridgeUrlVal = url
+                    val hMap = parseJsonToMap(headersJson)
+                    lastBridgeHeadersNamesVal = hMap?.keys?.joinToString(",") ?: ""
+                    return try {
+                        val reqBuilder = Request.Builder().url(url)
+                        reqBuilder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        val mediaType = "application/x-www-form-urlencoded".toMediaTypeOrNull()
+                        reqBuilder.post((body ?: "").toRequestBody(mediaType))
+                        if (!headersJson.isNullOrBlankJson()) {
+                            hMap?.forEach { (k, v) -> reqBuilder.header(k, v.toString()) }
+                        }
+                        val req = reqBuilder.build()
+                        val resStr = executeHttpAndFormatJson(okHttpClient, req, httpTraces, traceIndex++)
+                        val map = parseJsonToMap(resStr)
+                        if (map?.get("ok") == false) {
+                            lastBridgeErrorVal = map["error"]?.toString() ?: "statusCode=${map["statusCode"]}"
+                            lastBridgeErrorClassVal = map["errorClass"]?.toString() ?: ""
+                            lastBridgeErrorMessageVal = map["errorMessage"]?.toString() ?: ""
+                            lastBridgeRootCauseClassVal = map["rootCauseClass"]?.toString() ?: ""
+                            lastBridgeRootCauseMessageVal = map["rootCauseMessage"]?.toString() ?: ""
+                        } else {
+                            lastBridgeErrorVal = ""
+                            lastBridgeErrorClassVal = ""
+                            lastBridgeErrorMessageVal = ""
+                            lastBridgeRootCauseClassVal = ""
+                            lastBridgeRootCauseMessageVal = ""
+                        }
+                        resStr
+                    } catch (e: Throwable) {
+                        AppLogger.e(TAG, "[MANGAYOMI][HTTP] NativeHttpBridge POST exception for url=$url", e)
+                        lastBridgeErrorClassVal = e.javaClass.name
+                        lastBridgeErrorMessageVal = e.message ?: ""
+                        lastBridgeRootCauseClassVal = e.cause?.javaClass?.name ?: ""
+                        lastBridgeRootCauseMessageVal = e.cause?.message ?: ""
+                        lastBridgeErrorVal = "$lastBridgeErrorClassVal: $lastBridgeErrorMessageVal"
+                        formatHttpExceptionJson(e, url, httpTraces, traceIndex++)
                     }
-                    return executeHttpAndFormatJson(okHttpClient, reqBuilder.build(), httpTraces, traceIndex++)
                 }
             }
 
@@ -410,7 +700,17 @@ object MangayomiRuntimeDiagnostics {
             val fullPreamble = """
                 class Source {}
                 class Extension {}
-                class MProvider {}
+                class MProvider {
+                    constructor(source) {
+                        if (source) {
+                            this.source = source;
+                        } else if (typeof mangayomiSources !== 'undefined' && Array.isArray(mangayomiSources) && mangayomiSources.length > 0) {
+                            this.source = mangayomiSources[0];
+                        } else {
+                            this.source = {};
+                        }
+                    }
+                }
                 var exports = {};
                 var module = { exports: exports };
 
@@ -466,6 +766,121 @@ object MangayomiRuntimeDiagnostics {
                 rawError = "STAGE 2 HTTP_BRIDGE_INIT failed: $errMsg"
             )
         }
+
+        // TASK 7: Compile-Time & Runtime OkHttp Timeouts
+        val task7ConnectTimeout = okHttpClient.connectTimeoutMillis
+        val task7ReadTimeout = okHttpClient.readTimeoutMillis
+        val task7WriteTimeout = okHttpClient.writeTimeoutMillis
+        val task7CallTimeout = okHttpClient.callTimeoutMillis
+        AppLogger.i(TAG, "[TASK7] OkHttp Timeouts: connect=${task7ConnectTimeout}ms, read=${task7ReadTimeout}ms, write=${task7WriteTimeout}ms, call=${task7CallTimeout}ms")
+
+        // TASK 4: OkHttp HttpUrl.Builder test for character-for-character comparison
+        val expectedTestDUrl = "https://just4anime.online/api/advanced-search?page=1&perPage=20&query=Frieren&sort=%5B%22POPULARITY_DESC%22%5D"
+        val task4BuiltHttpUrl = okhttp3.HttpUrl.Builder()
+            .scheme("https")
+            .host("just4anime.online")
+            .addPathSegment("api")
+            .addPathSegment("advanced-search")
+            .addQueryParameter("page", "1")
+            .addQueryParameter("perPage", "20")
+            .addQueryParameter("query", "Frieren")
+            .addEncodedQueryParameter("sort", "%5B%22POPULARITY_DESC%22%5D")
+            .build()
+            .toString()
+        val task4Matches = (task4BuiltHttpUrl == expectedTestDUrl)
+        AppLogger.i(TAG, "[TASK4] Built URL: $task4BuiltHttpUrl, Expected: $expectedTestDUrl, Matches: $task4Matches")
+
+        // TASK 5: QuickJS JSON.stringify & encodeURIComponent Tests
+        var task5Stringify = ""
+        var task5Encoded1 = ""
+        var task5Encoded2 = ""
+        var task5Matches = false
+        try {
+            task5Stringify = qjs.evaluate("JSON.stringify(['POPULARITY_DESC'])")?.toString() ?: ""
+            task5Encoded1 = qjs.evaluate("encodeURIComponent(JSON.stringify(['POPULARITY_DESC']))")?.toString() ?: ""
+            task5Encoded2 = qjs.evaluate("encodeURIComponent('[\"POPULARITY_DESC\"]')")?.toString() ?: ""
+            task5Matches = (task5Encoded1 == "%5B%22POPULARITY_DESC%22%5D")
+            AppLogger.i(TAG, "[TASK5] Stringify: $task5Stringify, Encoded1: $task5Encoded1, Encoded2: $task5Encoded2, Matches: $task5Matches")
+        } catch (e: Throwable) {
+            task5Stringify = "ERROR: ${e.message}"
+            AppLogger.e(TAG, "[TASK5] QuickJS encodeURIComponent test failed: ${e.message}", e)
+        }
+        val qjsEncodedSortVal = task5Encoded1
+        val qjsSortMatchesExpectedVal = task5Matches
+
+        // TASKS 2 & 3: Direct Native OkHttp Tests for URL Variants with 1500ms delay
+        val testAUrl = "https://just4anime.online/api/advanced-search?page=1&perPage=5&query=Frieren"
+        val testBUrl = "https://just4anime.online/api/advanced-search?page=1&perPage=20&query=Frieren"
+        val testCUrl = "https://just4anime.online/api/advanced-search?page=1&perPage=5&query=Frieren&sort=%5B%22POPULARITY_DESC%22%5D"
+        val testDUrl = "https://just4anime.online/api/advanced-search?page=1&perPage=20&query=Frieren&sort=%5B%22POPULARITY_DESC%22%5D"
+
+        val testARes = executeDirectNativeTest(okHttpClient, "TEST_A", testAUrl)
+        kotlinx.coroutines.delay(1500)
+
+        val testBRes = executeDirectNativeTest(okHttpClient, "TEST_B", testBUrl)
+        kotlinx.coroutines.delay(1500)
+
+        val testCRes = executeDirectNativeTest(okHttpClient, "TEST_C", testCUrl)
+        kotlinx.coroutines.delay(1500)
+
+        val testDRes = executeDirectNativeTest(okHttpClient, "TEST_D", testDUrl)
+        kotlinx.coroutines.delay(1500)
+
+        // TASK 8: Standalone OkHttp TEST D vs QuickJS -> Client.get() -> Bridge -> OkHttp TEST D
+        val testDStandaloneRes = executeDirectNativeTest(okHttpClient, "TEST_D_STANDALONE", testDUrl)
+        kotlinx.coroutines.delay(1500)
+
+        val bridgeTestT0 = System.currentTimeMillis()
+        var testDBridgeStatus = 0
+        var testDBridgeBytes = 0
+        var testDBridgePhase = "NONE"
+        var testDBridgeErrClass = ""
+        var testDBridgeErrMsg = ""
+        var testDBridgeRootCauseClass = ""
+        var testDBridgeRootCauseMsg = ""
+        try {
+            val qjsBridgeRes = qjs.evaluate("""
+                (function() {
+                    var client = new Client();
+                    var res = client.get("$testDUrl", { "User-Agent": "Mozilla/5.0", "Accept": "application/json" });
+                    return JSON.stringify({
+                        statusCode: res ? res.statusCode : 0,
+                        bytes: (res && res.body) ? res.body.length : 0,
+                        ok: (res && res.ok) === true
+                    });
+                })()
+            """)?.toString()
+            val bridgeMap = parseJsonToMap(qjsBridgeRes)
+            testDBridgeStatus = (bridgeMap?.get("statusCode") as? Number)?.toInt() ?: 0
+            testDBridgeBytes = (bridgeMap?.get("bytes") as? Number)?.toInt() ?: 0
+            if (testDBridgeStatus !in 200..299) {
+                testDBridgeErrClass = lastBridgeErrorClassVal
+                testDBridgeErrMsg = lastBridgeErrorMessageVal
+                testDBridgeRootCauseClass = lastBridgeRootCauseClassVal
+                testDBridgeRootCauseMsg = lastBridgeRootCauseMessageVal
+                testDBridgePhase = if (testDBridgeErrClass.contains("Timeout", ignoreCase = true)) "read timeout" else "bridge call failed"
+            }
+        } catch (e: Throwable) {
+            testDBridgeErrClass = e.javaClass.name
+            testDBridgeErrMsg = e.message ?: ""
+            testDBridgePhase = "qjs execution failed"
+        }
+        val bridgeT1 = System.currentTimeMillis()
+        val testDBridgeRes = NativeUrlTestResult(
+            testName = "TEST_D_BRIDGE",
+            url = testDUrl,
+            status = testDBridgeStatus,
+            responseBytes = testDBridgeBytes,
+            startTime = bridgeTestT0,
+            endTime = bridgeT1,
+            elapsedMs = bridgeT1 - bridgeTestT0,
+            timeoutPhase = testDBridgePhase,
+            exceptionClass = testDBridgeErrClass,
+            exceptionMessage = testDBridgeErrMsg,
+            rootCauseClass = testDBridgeRootCauseClass,
+            rootCauseMessage = testDBridgeRootCauseMsg
+        )
+        kotlinx.coroutines.delay(1500)
 
         // STAGE 3: RAW_CLIENT_GET & STAGE 4: JSON_PARSE
         val targetSearchUrl = "https://just4anime.online/api/advanced-search?page=1&perPage=5&query=Frieren"
@@ -637,6 +1052,7 @@ object MangayomiRuntimeDiagnostics {
             clientGetBodyTypeVal = rawBodyJsTypeVal
 
             rawHttpPass = httpStatusVal in 200..299
+            rawGetHeaderNamesVal = lastBridgeHeadersNamesVal
 
             if (rawHttpPass) {
                 recordStagePass(3, "RAW_CLIENT_GET")
@@ -685,6 +1101,7 @@ object MangayomiRuntimeDiagnostics {
         var sourceBytes = 0
         var sourceJs = ""
         try {
+            kotlinx.coroutines.delay(1500)
             val request = Request.Builder().url(JUST4ANIME_URL).build()
             val response = okHttpClient.newCall(request).execute()
             sourceJs = response.body?.string() ?: ""
@@ -711,15 +1128,122 @@ object MangayomiRuntimeDiagnostics {
             )
         }
 
-        // STAGE 6: DEFAULT_EXTENSION_INSTANTIATION
+        // STAGE 6: DEFAULT_EXTENSION_INSTANTIATION & RUNTIME INTROSPECTION
         var constructorNameVal = "None"
+        var defaultExtTypeVal = ""
+        var defaultExtProtoVal = ""
+        var defaultExtMethodsVal = ""
+        var srcTypeVal = ""
+        var srcProtoVal = ""
+        var srcMethodsVal = ""
+        var extTypeVal = ""
+        var extProtoVal = ""
+        var extMethodsVal = ""
+        var srcEqualsExtVal = false
+        var srcSearchTypeVal = ""
+        var srcDetailTypeVal = ""
+        var srcVideoTypeVal = ""
+        var extSearchTypeVal = ""
+        var extDetailTypeVal = ""
+        var extVideoTypeVal = ""
+
         try {
-            qjs.evaluate("""
+            val instAndIntrospectScript = """
                 var source = null;
                 if (typeof DefaultExtension !== 'undefined') {
                     source = new DefaultExtension();
+                } else if (typeof mangayomiSources !== 'undefined' && Array.isArray(mangayomiSources) && mangayomiSources.length > 0) {
+                    var firstSrc = mangayomiSources[0];
+                    if (typeof firstSrc === 'function') {
+                        try { source = new firstSrc(); } catch(e) { source = firstSrc; }
+                    } else { source = firstSrc; }
                 }
-            """.trimIndent())
+
+                (function() {
+                    function getMethods(obj) {
+                        if (!obj) return "";
+                        var props = [];
+                        var curr = obj;
+                        do {
+                            Object.getOwnPropertyNames(curr).forEach(function(p) {
+                                if (props.indexOf(p) === -1 && p !== "constructor") {
+                                    try {
+                                        if (typeof curr[p] === "function") props.push(p);
+                                    } catch(e) {}
+                                }
+                            });
+                        } while ((curr = Object.getPrototypeOf(curr)) && curr !== Object.prototype);
+                        return props.join(",");
+                    }
+
+                    var defaultExtType = typeof DefaultExtension;
+                    var defaultExtProto = DefaultExtension && DefaultExtension.prototype ? (Object.getPrototypeOf(DefaultExtension.prototype) ? Object.getPrototypeOf(DefaultExtension.prototype).constructor.name : "Object") : "";
+                    var defaultExtMethods = getMethods(DefaultExtension ? DefaultExtension.prototype : null);
+
+                    var srcType = typeof source;
+                    var srcProto = source ? (Object.getPrototypeOf(source) ? Object.getPrototypeOf(source).constructor.name : "") : "";
+                    var srcMethods = getMethods(source);
+
+                    var ext = source;
+                    var extType = typeof ext;
+                    var extProto = ext ? (Object.getPrototypeOf(ext) ? Object.getPrototypeOf(ext).constructor.name : "") : "";
+                    var extMethods = getMethods(ext);
+
+                    var srcEqualsExt = (source === ext);
+
+                    var srcSearchType = source ? typeof source.search : "undefined";
+                    var srcDetailType = source ? typeof source.getDetail : "undefined";
+                    var srcVideoType = source ? typeof source.getVideoList : "undefined";
+
+                    var extSearchType = ext ? typeof ext.search : "undefined";
+                    var extDetailType = ext ? typeof ext.getDetail : "undefined";
+                    var extVideoType = ext ? typeof ext.getVideoList : "undefined";
+
+                    return JSON.stringify({
+                        defaultExtensionType: defaultExtType,
+                        defaultExtensionProto: defaultExtProto,
+                        defaultExtensionMethods: defaultExtMethods,
+                        sourceType: srcType,
+                        sourceProto: srcProto,
+                        sourceMethods: srcMethods,
+                        extensionType: extType,
+                        extensionProto: extProto,
+                        extensionMethods: extMethods,
+                        sourceEqualsExtension: srcEqualsExt,
+                        sourceSearchType: srcSearchType,
+                        sourceDetailType: srcDetailType,
+                        sourceVideoType: srcVideoType,
+                        extensionSearchType: extSearchType,
+                        extensionDetailType: extDetailType,
+                        extensionVideoType: extVideoType
+                    });
+                })()
+            """.trimIndent()
+
+            val rawIntrospectStr = qjs.evaluate(instAndIntrospectScript)?.toString() ?: "{}"
+            val introspectMap = parseJsonToMap(rawIntrospectStr)
+
+            defaultExtTypeVal = introspectMap?.get("defaultExtensionType")?.toString() ?: ""
+            defaultExtProtoVal = introspectMap?.get("defaultExtensionProto")?.toString() ?: ""
+            defaultExtMethodsVal = introspectMap?.get("defaultExtensionMethods")?.toString() ?: ""
+
+            srcTypeVal = introspectMap?.get("sourceType")?.toString() ?: ""
+            srcProtoVal = introspectMap?.get("sourceProto")?.toString() ?: ""
+            srcMethodsVal = introspectMap?.get("sourceMethods")?.toString() ?: ""
+
+            extTypeVal = introspectMap?.get("extensionType")?.toString() ?: ""
+            extProtoVal = introspectMap?.get("extensionProto")?.toString() ?: ""
+            extMethodsVal = introspectMap?.get("extensionMethods")?.toString() ?: ""
+
+            srcEqualsExtVal = introspectMap?.get("sourceEqualsExtension")?.toString()?.toBoolean() ?: false
+
+            srcSearchTypeVal = introspectMap?.get("sourceSearchType")?.toString() ?: ""
+            srcDetailTypeVal = introspectMap?.get("sourceDetailType")?.toString() ?: ""
+            srcVideoTypeVal = introspectMap?.get("sourceVideoType")?.toString() ?: ""
+
+            extSearchTypeVal = introspectMap?.get("extensionSearchType")?.toString() ?: ""
+            extDetailTypeVal = introspectMap?.get("extensionDetailType")?.toString() ?: ""
+            extVideoTypeVal = introspectMap?.get("extensionVideoType")?.toString() ?: ""
 
             val isInstantiated = qjs.evaluate("source !== null") as Boolean
             constructorNameVal = qjs.evaluate("source ? source.constructor.name : 'None'")?.toString() ?: "None"
@@ -784,6 +1308,7 @@ object MangayomiRuntimeDiagnostics {
         var directSearchApiListLengthVal = -1
         var directSearchApiHasNextVal = ""
 
+        kotlinx.coroutines.delay(1500)
         AppLogger.i(TAG, "SEARCH_STARTED")
         try {
             val searchScript = """
@@ -929,9 +1454,18 @@ object MangayomiRuntimeDiagnostics {
             """.trimIndent()
 
             qjs.evaluate(searchScript)
-            qjs.evaluate("var _dummy = 0;") // trigger microtask flush
-            val rawSearchEval = qjs.evaluate("_searchResult")?.toString() ?: "{}"
-            val searchEvalMap = parseJsonToMap(rawSearchEval)
+            var rawSearchEval: String? = null
+            val searchStartTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - searchStartTime < 15000) {
+                val res = qjs.evaluate("_searchResult")?.toString()
+                if (res != null && res != "null" && res.isNotBlank()) {
+                    rawSearchEval = res
+                    break
+                }
+                qjs.evaluate("var _tick = 0;")
+                Thread.sleep(10)
+            }
+            val searchEvalMap = parseJsonToMap(rawSearchEval ?: "{}")
 
             if (searchEvalMap?.containsKey("error") == true) {
                 val sErr = searchEvalMap["error"]?.toString() ?: "Search JS Error"
@@ -1103,19 +1637,35 @@ object MangayomiRuntimeDiagnostics {
         AppLogger.i(TAG, "DETAIL_STARTED")
         try {
             val detailScript = """
-                (function() {
+                var _detailResult = null;
+                (async function() {
                     try {
-                        if (!source) return JSON.stringify({ error: "No source instance" });
-                        var res = source.getDetail("$targetDetailLink");
-                        return JSON.stringify({ success: true, data: res });
+                        if (!source) {
+                            _detailResult = JSON.stringify({ error: "No source instance" });
+                            return;
+                        }
+                        var rawRes = source.getDetail("$targetDetailLink");
+                        var res = (rawRes && typeof rawRes.then === 'function') ? await rawRes : rawRes;
+                        _detailResult = JSON.stringify({ success: true, data: res });
                     } catch(e) {
-                        return JSON.stringify({ error: String(e), stack: (e && e.stack) ? String(e.stack) : "" });
+                        _detailResult = JSON.stringify({ error: String(e), stack: (e && e.stack) ? String(e.stack) : "" });
                     }
-                })()
+                })();
             """.trimIndent()
 
-            val rawDetailEval = qjs.evaluate(detailScript)?.toString() ?: "{}"
-            val detailEvalMap = parseJsonToMap(rawDetailEval)
+            qjs.evaluate(detailScript)
+            var rawDetailEval: String? = null
+            val detailStartTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - detailStartTime < 15000) {
+                val res = qjs.evaluate("_detailResult")?.toString()
+                if (res != null && res != "null" && res.isNotBlank()) {
+                    rawDetailEval = res
+                    break
+                }
+                qjs.evaluate("var _tick = 0;")
+                Thread.sleep(10)
+            }
+            val detailEvalMap = parseJsonToMap(rawDetailEval ?: "{}")
 
             if (detailEvalMap?.containsKey("error") == true) {
                 val dErr = detailEvalMap["error"]?.toString() ?: "Detail JS Error"
@@ -1240,19 +1790,35 @@ object MangayomiRuntimeDiagnostics {
         AppLogger.i(TAG, "VIDEO_STARTED")
         try {
             val videoScript = """
-                (function() {
+                var _videoResult = null;
+                (async function() {
                     try {
-                        if (!source) return JSON.stringify({ error: "No source instance" });
-                        var res = source.getVideoList("$targetEpisodeUrl");
-                        return JSON.stringify({ success: true, data: res });
+                        if (!source) {
+                            _videoResult = JSON.stringify({ error: "No source instance" });
+                            return;
+                        }
+                        var rawRes = source.getVideoList("$targetEpisodeUrl");
+                        var res = (rawRes && typeof rawRes.then === 'function') ? await rawRes : rawRes;
+                        _videoResult = JSON.stringify({ success: true, data: res });
                     } catch(e) {
-                        return JSON.stringify({ error: String(e), stack: (e && e.stack) ? String(e.stack) : "" });
+                        _videoResult = JSON.stringify({ error: String(e), stack: (e && e.stack) ? String(e.stack) : "" });
                     }
-                })()
+                })();
             """.trimIndent()
 
-            val rawVideoEval = qjs.evaluate(videoScript)?.toString() ?: "{}"
-            val videoEvalMap = parseJsonToMap(rawVideoEval)
+            qjs.evaluate(videoScript)
+            var rawVideoEval: String? = null
+            val videoStartTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - videoStartTime < 15000) {
+                val res = qjs.evaluate("_videoResult")?.toString()
+                if (res != null && res != "null" && res.isNotBlank()) {
+                    rawVideoEval = res
+                    break
+                }
+                qjs.evaluate("var _tick = 0;")
+                Thread.sleep(10)
+            }
+            val videoEvalMap = parseJsonToMap(rawVideoEval ?: "{}")
 
             if (videoEvalMap?.containsKey("error") == true) {
                 val vErr = videoEvalMap["error"]?.toString() ?: "Video JS Error"
@@ -1351,6 +1917,39 @@ object MangayomiRuntimeDiagnostics {
             version = "0.9.2",
             nativeLib = "quickjs",
             abi = abi,
+            testA = testARes,
+            testB = testBRes,
+            testC = testCRes,
+            testD = testDRes,
+            testD_Standalone = testDStandaloneRes,
+            testD_Bridge = testDBridgeRes,
+            task4_builtUrl = task4BuiltHttpUrl,
+            task4_expectedUrl = expectedTestDUrl,
+            task4_matchesExpected = task4Matches,
+            task5_stringify = task5Stringify,
+            task5_encoded1 = task5Encoded1,
+            task5_encoded2 = task5Encoded2,
+            task5_matchesExpected = task5Matches,
+            task6_directUrl = testDUrl,
+            task6_extensionUrl = searchBridgeUrlVal,
+            task6_urlsMatch = (testDUrl == searchBridgeUrlVal),
+            task6_directSafeHeaders = "User-Agent,Accept",
+            task6_extensionSafeHeaders = searchHeaderNamesVal,
+            task7_connectTimeoutMs = task7ConnectTimeout,
+            task7_readTimeoutMs = task7ReadTimeout,
+            task7_writeTimeoutMs = task7WriteTimeout,
+            task7_callTimeoutMs = task7CallTimeout,
+            qjsEncodedSort = qjsEncodedSortVal,
+            qjsSortMatchesExpected = qjsSortMatchesExpectedVal,
+            lastBridgeUrl = lastBridgeUrlVal,
+            lastBridgeHeadersNames = lastBridgeHeadersNamesVal,
+            lastBridgeError = lastBridgeErrorVal,
+            lastBridgeErrorClass = lastBridgeErrorClassVal,
+            lastBridgeErrorMessage = lastBridgeErrorMessageVal,
+            lastBridgeRootCauseClass = lastBridgeRootCauseClassVal,
+            lastBridgeRootCauseMessage = lastBridgeRootCauseMessageVal,
+            rawGetHeaderNames = rawGetHeaderNamesVal,
+            searchHeaderNames = searchHeaderNamesVal,
             stages = stagesList,
             testExecuted = true,
             testStartedAt = startedAtStr,
@@ -1376,6 +1975,22 @@ object MangayomiRuntimeDiagnostics {
             sourceExecution = "PASS",
             instanceStatus = "PASS",
             constructorName = constructorNameVal,
+            defaultExtensionType = defaultExtTypeVal,
+            defaultExtensionProto = defaultExtProtoVal,
+            defaultExtensionMethods = defaultExtMethodsVal,
+            sourceType = srcTypeVal,
+            sourceProto = srcProtoVal,
+            sourceMethods = srcMethodsVal,
+            extensionType = extTypeVal,
+            extensionProto = extProtoVal,
+            extensionMethods = extMethodsVal,
+            sourceEqualsExtension = srcEqualsExtVal,
+            sourceSearchType = srcSearchTypeVal,
+            sourceDetailType = srcDetailTypeVal,
+            sourceVideoType = srcVideoTypeVal,
+            extensionSearchType = extSearchTypeVal,
+            extensionDetailType = extDetailTypeVal,
+            extensionVideoType = extVideoTypeVal,
             searchStatus = if (searchPassVal) "PASS" else "FAIL",
             searchResultType = searchResultTypeVal,
             searchResponseKeys = searchResponseKeysVal,
@@ -1448,21 +2063,127 @@ object MangayomiRuntimeDiagnostics {
         )
     }
 
+    private fun formatHttpExceptionJson(
+        e: Throwable,
+        url: String,
+        traces: MutableList<HttpRequestTrace>,
+        index: Int,
+        startTime: Long = 0L,
+        endTime: Long = 0L,
+        elapsedMs: Long = 0L,
+        timeoutPhase: String = "NONE"
+    ): String {
+        val errClass = e.javaClass.name
+        val errMsg = e.message ?: ""
+        val causeClass = e.cause?.javaClass?.name ?: ""
+        val causeMsg = e.cause?.message ?: ""
+
+        traces.add(
+            HttpRequestTrace(
+                requestNumber = index,
+                method = "GET/POST",
+                url = url,
+                httpStatus = 0,
+                contentType = "error",
+                responseBytes = 0,
+                bodyPrefix300 = "Error ($errClass): $errMsg | Cause ($causeClass): $causeMsg",
+                startTime = startTime,
+                endTime = endTime,
+                elapsedMs = elapsedMs,
+                timeoutPhase = timeoutPhase
+            )
+        )
+
+        val jsonObj = org.json.JSONObject()
+        jsonObj.put("body", "{}")
+        jsonObj.put("statusCode", 0)
+        jsonObj.put("ok", false)
+        jsonObj.put("headers", org.json.JSONObject())
+        jsonObj.put("error", "$errClass: $errMsg")
+        jsonObj.put("errorClass", errClass)
+        jsonObj.put("errorMessage", errMsg)
+        jsonObj.put("rootCauseClass", causeClass)
+        jsonObj.put("rootCauseMessage", causeMsg)
+        jsonObj.put("timeoutPhase", timeoutPhase)
+        jsonObj.put("elapsedMs", elapsedMs)
+        return jsonObj.toString()
+    }
+
+    private fun executeDirectNativeTest(
+        client: OkHttpClient,
+        testName: String,
+        url: String
+    ): NativeUrlTestResult {
+        val tracker = OkHttpCallTracker()
+        val customClient = client.newBuilder().eventListener(tracker).build()
+        val t0 = System.currentTimeMillis()
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Accept", "application/json, text/plain, */*")
+                .build()
+
+            customClient.newCall(request).execute().use { resp ->
+                val bytes = resp.body?.bytes() ?: byteArrayOf()
+                val t1 = System.currentTimeMillis()
+                val elapsed = t1 - t0
+                AppLogger.i(TAG, "[DIRECT_NATIVE_TEST] $testName ($url): status=${resp.code}, bytes=${bytes.size}, elapsedMs=$elapsed")
+                NativeUrlTestResult(
+                    testName = testName,
+                    url = url,
+                    status = resp.code,
+                    responseBytes = bytes.size,
+                    startTime = t0,
+                    endTime = t1,
+                    elapsedMs = elapsed,
+                    timeoutPhase = "NONE"
+                )
+            }
+        } catch (e: Throwable) {
+            val t1 = System.currentTimeMillis()
+            val elapsed = t1 - t0
+            val phase = if (tracker.detectedPhase != "NONE") tracker.detectedPhase else {
+                if (e is java.net.SocketTimeoutException) "read timeout" else "call failed"
+            }
+            AppLogger.e(TAG, "[DIRECT_NATIVE_TEST] $testName ($url) FAILED at phase [$phase] in ${elapsed}ms: ${e.message}", e)
+            NativeUrlTestResult(
+                testName = testName,
+                url = url,
+                status = 0,
+                responseBytes = 0,
+                startTime = t0,
+                endTime = t1,
+                elapsedMs = elapsed,
+                timeoutPhase = phase,
+                exceptionClass = e.javaClass.name,
+                exceptionMessage = e.message ?: "",
+                rootCauseClass = e.cause?.javaClass?.name ?: "",
+                rootCauseMessage = e.cause?.message ?: ""
+            )
+        }
+    }
+
     private fun executeHttpAndFormatJson(
         client: OkHttpClient,
         request: Request,
         traces: MutableList<HttpRequestTrace>,
         index: Int
     ): String {
+        val tracker = OkHttpCallTracker()
+        val customClient = client.newBuilder().eventListener(tracker).build()
+        val t0 = System.currentTimeMillis()
         return try {
-            client.newCall(request).execute().use { resp ->
+            customClient.newCall(request).execute().use { resp ->
                 val bytes = resp.body?.bytes() ?: byteArrayOf()
+                val t1 = System.currentTimeMillis()
+                val elapsed = t1 - t0
                 val bodyText = String(bytes, Charsets.UTF_8)
                 val contentType = resp.header("Content-Type") ?: resp.header("content-type") ?: "application/json"
                 val responseBytes = bytes.size
                 val prefix300 = bodyText.take(300)
 
-                AppLogger.i(TAG, "[MANGAYOMI][HTTP] method=${request.method} url=${request.url} status=${resp.code} responseBytes=$responseBytes")
+                AppLogger.i(TAG, "[MANGAYOMI][HTTP] method=${request.method} url=${request.url} status=${resp.code} responseBytes=$responseBytes elapsedMs=$elapsed")
                 traces.add(
                     HttpRequestTrace(
                         requestNumber = index,
@@ -1471,7 +2192,11 @@ object MangayomiRuntimeDiagnostics {
                         httpStatus = resp.code,
                         contentType = contentType,
                         responseBytes = responseBytes,
-                        bodyPrefix300 = prefix300
+                        bodyPrefix300 = prefix300,
+                        startTime = t0,
+                        endTime = t1,
+                        elapsedMs = elapsed,
+                        timeoutPhase = "NONE"
                     )
                 )
 
@@ -1489,25 +2214,14 @@ object MangayomiRuntimeDiagnostics {
 
                 jsonObj.toString()
             }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "[MANGAYOMI][HTTP] Request failed for ${request.url}: ${e.message}")
-            traces.add(
-                HttpRequestTrace(
-                    requestNumber = index,
-                    method = request.method,
-                    url = request.url.toString(),
-                    httpStatus = 0,
-                    contentType = "error",
-                    responseBytes = 0,
-                    bodyPrefix300 = "Error: ${e.message}"
-                )
-            )
-            val jsonObj = org.json.JSONObject()
-            jsonObj.put("body", "")
-            jsonObj.put("statusCode", 0)
-            jsonObj.put("ok", false)
-            jsonObj.put("headers", org.json.JSONObject())
-            jsonObj.toString()
+        } catch (e: Throwable) {
+            val t1 = System.currentTimeMillis()
+            val elapsed = t1 - t0
+            val phase = if (tracker.detectedPhase != "NONE") tracker.detectedPhase else {
+                if (e is java.net.SocketTimeoutException) "read timeout" else "call failed"
+            }
+            AppLogger.e(TAG, "[MANGAYOMI][HTTP] Request failed for ${request.url} at phase [$phase] in ${elapsed}ms: ${e.message}", e)
+            formatHttpExceptionJson(e, request.url.toString(), traces, index, t0, t1, elapsed, phase)
         }
     }
 

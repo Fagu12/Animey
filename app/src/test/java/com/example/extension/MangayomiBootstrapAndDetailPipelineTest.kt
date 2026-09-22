@@ -105,6 +105,7 @@ class MangayomiBootstrapAndDetailPipelineTest {
             id = "just4anime",
             name = "Just4Anime",
             version = "1.0.0",
+            baseUrl = "https://just4anime.test",
             scriptContent = validJust4AnimeJs
         )
 
@@ -151,6 +152,7 @@ class MangayomiBootstrapAndDetailPipelineTest {
             id = "broken_ext",
             name = "BrokenExt",
             version = "1.0.0",
+            baseUrl = "https://broken.test",
             scriptContent = invalidScript
         )
 

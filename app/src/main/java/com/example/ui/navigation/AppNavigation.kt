@@ -311,7 +311,7 @@ fun AppNavigation(
                             return com.example.features.diagnostics.MangayomiDiagnosticsViewModel(
                                 animeDao = container.database.animeDao(),
                                 episodeDao = container.database.episodeDao(),
-                                okHttpClient = okhttp3.OkHttpClient()
+                                okHttpClient = com.example.data.extension.mangayomi.runtime.MangayomiExecutionContext.createDefaultOkHttpClient()
                             ) as T
                         }
                     }

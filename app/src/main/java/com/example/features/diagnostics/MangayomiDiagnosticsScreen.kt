@@ -366,6 +366,144 @@ fun MangayomiDiagnosticsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // 1B. DIRECT NATIVE OKHTTP URL VARIANT TESTS CARD
+                // 1B. DIRECT NATIVE OKHTTP URL VARIANT TESTS (Tasks 1, 2, 3, 7, 8)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("1B. NATIVE OKHTTP URL VARIANT & CONTROL TESTS", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // TASK 7: OkHttp Timeouts
+                        DiagRow("CONNECT_TIMEOUT_MS", "${live.task7_connectTimeoutMs}ms")
+                        DiagRow("READ_TIMEOUT_MS", "${live.task7_readTimeoutMs}ms")
+                        DiagRow("WRITE_TIMEOUT_MS", "${live.task7_writeTimeoutMs}ms")
+                        DiagRow("CALL_TIMEOUT_MS", "${live.task7_callTimeoutMs}ms")
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // TEST A
+                        DiagTestRow("TEST A (page=1&perPage=5)", if (live.testA.status in 200..299) "PASS (${live.testA.status}) ${live.testA.elapsedMs}ms" else "FAIL (${live.testA.status}) [${live.testA.timeoutPhase}]")
+                        if (live.testA.exceptionClass.isNotBlank()) {
+                            DiagRow("TEST_A_EXCEPTION", "${live.testA.exceptionClass}: ${live.testA.exceptionMessage}")
+                        }
+
+                        // TEST B
+                        DiagTestRow("TEST B (page=1&perPage=20)", if (live.testB.status in 200..299) "PASS (${live.testB.status}) ${live.testB.elapsedMs}ms" else "FAIL (${live.testB.status}) [${live.testB.timeoutPhase}]")
+                        if (live.testB.exceptionClass.isNotBlank()) {
+                            DiagRow("TEST_B_EXCEPTION", "${live.testB.exceptionClass}: ${live.testB.exceptionMessage}")
+                        }
+
+                        // TEST C
+                        DiagTestRow("TEST C (page=1&perPage=5&sort)", if (live.testC.status in 200..299) "PASS (${live.testC.status}) ${live.testC.elapsedMs}ms" else "FAIL (${live.testC.status}) [${live.testC.timeoutPhase}]")
+                        if (live.testC.exceptionClass.isNotBlank()) {
+                            DiagRow("TEST_C_EXCEPTION", "${live.testC.exceptionClass}: ${live.testC.exceptionMessage}")
+                        }
+
+                        // TEST D
+                        DiagTestRow("TEST D (page=1&perPage=20&sort)", if (live.testD.status in 200..299) "PASS (${live.testD.status}) ${live.testD.elapsedMs}ms" else "FAIL (${live.testD.status}) [${live.testD.timeoutPhase}]")
+                        if (live.testD.exceptionClass.isNotBlank()) {
+                            DiagRow("TEST_D_TIMEOUT_PHASE", live.testD.timeoutPhase)
+                            DiagRow("TEST_D_EXCEPTION", "${live.testD.exceptionClass}: ${live.testD.exceptionMessage}")
+                            DiagRow("TEST_D_ROOT_CAUSE", "${live.testD.rootCauseClass}: ${live.testD.rootCauseMessage}")
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("TASK 8: CONTROL COMPARISON (TEST D)", fontWeight = FontWeight.Bold)
+                        DiagTestRow("STANDALONE_OKHTTP", if (live.testD_Standalone.status in 200..299) "PASS (${live.testD_Standalone.status}) ${live.testD_Standalone.elapsedMs}ms" else "FAIL (${live.testD_Standalone.status}) [${live.testD_Standalone.timeoutPhase}]")
+                        DiagTestRow("QUICKJS_BRIDGE_OKHTTP", if (live.testD_Bridge.status in 200..299) "PASS (${live.testD_Bridge.status}) ${live.testD_Bridge.elapsedMs}ms" else "FAIL (${live.testD_Bridge.status}) [${live.testD_Bridge.timeoutPhase}]")
+                        if (live.testD_Bridge.exceptionClass.isNotBlank()) {
+                            DiagRow("BRIDGE_EXCEPTION", "${live.testD_Bridge.exceptionClass}: ${live.testD_Bridge.exceptionMessage}")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 1C. URL CONSTRUCTION & ENCODING VERIFICATION (Tasks 4, 5, 6)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("1C. URL ENCODING & BRIDGE VERIFICATION (TASKS 4, 5, 6)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // TASK 4
+                        Text("TASK 4: HttpUrl.Builder", fontWeight = FontWeight.Bold)
+                        DiagRow("TASK4_BUILT_URL", live.task4_builtUrl)
+                        DiagRow("TASK4_EXPECTED_URL", live.task4_expectedUrl)
+                        DiagTestRow("TASK4_URLS_MATCH", if (live.task4_matchesExpected) "PASS" else "FAIL")
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // TASK 5
+                        Text("TASK 5: QuickJS Encoding", fontWeight = FontWeight.Bold)
+                        DiagRow("TASK5_STRINGIFY", live.task5_stringify)
+                        DiagRow("TASK5_ENCODED_1", live.task5_encoded1)
+                        DiagRow("TASK5_ENCODED_2", live.task5_encoded2)
+                        DiagTestRow("TASK5_ENCODING_MATCHES", if (live.task5_matchesExpected) "PASS" else "FAIL")
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // TASK 6
+                        Text("TASK 6: Direct vs Extension Bridge Request", fontWeight = FontWeight.Bold)
+                        DiagRow("TASK6_DIRECT_URL", live.task6_directUrl)
+                        DiagRow("TASK6_EXTENSION_URL", live.task6_extensionUrl)
+                        DiagTestRow("TASK6_URLS_MATCH", if (live.task6_urlsMatch) "PASS" else "FAIL")
+                        DiagRow("TASK6_DIRECT_HEADERS", live.task6_directSafeHeaders)
+                        DiagRow("TASK6_EXTENSION_HEADERS", live.task6_extensionSafeHeaders)
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("LAST_BRIDGE_URL", live.lastBridgeUrl)
+                        DiagRow("LAST_BRIDGE_HEADERS", live.lastBridgeHeadersNames)
+                        if (live.lastBridgeError.isNotBlank()) {
+                            DiagRow("LAST_BRIDGE_ERROR", live.lastBridgeError)
+                            DiagRow("LAST_BRIDGE_ERR_CLASS", live.lastBridgeErrorClass)
+                            DiagRow("LAST_BRIDGE_ERR_MSG", live.lastBridgeErrorMessage)
+                            DiagRow("LAST_BRIDGE_ROOT_CAUSE_CLASS", live.lastBridgeRootCauseClass)
+                            DiagRow("LAST_BRIDGE_ROOT_CAUSE_MSG", live.lastBridgeRootCauseMessage)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 1C. RUNTIME OBJECT INTROSPECTION CARD
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("1C. RUNTIME OBJECT INTROSPECTION", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("DEFAULT_EXTENSION_TYPE", live.defaultExtensionType)
+                        DiagRow("DEFAULT_EXTENSION_PROTO", live.defaultExtensionProto)
+                        DiagRow("DEFAULT_EXTENSION_METHODS", live.defaultExtensionMethods)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("SOURCE_TYPE", live.sourceType)
+                        DiagRow("SOURCE_PROTO", live.sourceProto)
+                        DiagRow("SOURCE_METHODS", live.sourceMethods)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("EXTENSION_TYPE", live.extensionType)
+                        DiagRow("EXTENSION_PROTO", live.extensionProto)
+                        DiagRow("EXTENSION_METHODS", live.extensionMethods)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("SOURCE_EQUALS_EXTENSION", "${live.sourceEqualsExtension}")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("SOURCE_SEARCH_TYPE", live.sourceSearchType)
+                        DiagRow("SOURCE_DETAIL_TYPE", live.sourceDetailType)
+                        DiagRow("SOURCE_VIDEO_TYPE", live.sourceVideoType)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        DiagRow("EXTENSION_SEARCH_TYPE", live.extensionSearchType)
+                        DiagRow("EXTENSION_DETAIL_TYPE", live.extensionDetailType)
+                        DiagRow("EXTENSION_VIDEO_TYPE", live.extensionVideoType)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 // SEARCH RESULT CARD & DEEP INSPECTION
                 Card(
                     modifier = Modifier.fillMaxWidth(),
