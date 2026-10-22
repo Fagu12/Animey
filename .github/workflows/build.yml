@@ -23,20 +23,26 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Recreate Android Gradle Setup
+      - name: Scaffold Android Files Without Overwriting Project
         run: |
-          # 1. Force lowercase package name inside pubspec.yaml
-          if [ -f pubspec.yaml ]; then
-            sed -i 's/^name: .*/name: animey/' pubspec.yaml
-          fi
+          # 1. Back up pubspec.yaml
+          cp pubspec.yaml pubspec.yaml.bak
 
-          # 2. Remove incomplete android folder
+          # 2. Delete incomplete android directory
           rm -rf android
+
+          # 3. Create fresh Android project in a separate temp directory
+          flutter create --platforms=android --org com.animey.app --project-name animey temp_scaffold
           
-          # 3. Explicitly pass lowercase project name to bypass repo casing
-          flutter create . --project-name animey --org com.animey.app --platforms=android
-          
-          # 4. Inject streaming permissions and cleartext traffic
+          # 4. Copy ONLY the android folder into our project
+          cp -r temp_scaffold/android ./android
+          rm -rf temp_scaffold
+
+          # 5. Restore original pubspec.yaml
+          mv pubspec.yaml.bak pubspec.yaml
+          sed -i 's/^name: .*/name: animey/' pubspec.yaml
+
+          # 6. Inject video streaming network permissions
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
 
