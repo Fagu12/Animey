@@ -113,7 +113,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
               decoration: BoxDecoration(
                 color: isSelected
                     ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant.withValues(alpha: 0.32),
+                    : colorScheme.onSurfaceVariant.withOpacity(0.32),
                 borderRadius: BorderRadius.circular(99),
               ),
             );
@@ -146,7 +146,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                   color: colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(26),
                   border: Border.all(
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.55),
+                    color: colorScheme.outlineVariant.withOpacity(0.55),
                   ),
                 ),
                 child: Column(
@@ -179,7 +179,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                                   end: Alignment.bottomCenter,
                                   colors: [
                                     Colors.transparent,
-                                    Colors.black.withValues(alpha: 0.72),
+                                    Colors.black.withOpacity(0.72),
                                   ],
                                   stops: const [0.4, 1.0],
                                 ),
@@ -194,7 +194,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.6),
+                                  color: Colors.black.withOpacity(0.6),
                                   borderRadius: BorderRadius.circular(99),
                                 ),
                                 child: Text(
@@ -309,7 +309,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                           borderRadius: BorderRadius.circular(22),
                           border: Border.all(
                             color: isSelected
-                                ? colorScheme.primary.withValues(alpha: 0.7)
+                                ? colorScheme.primary.withOpacity(0.7)
                                 : Colors.transparent,
                             width: 1.5,
                           ),
@@ -317,7 +317,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                               ? [
                                   BoxShadow(
                                     color: colorScheme.primary
-                                        .withValues(alpha: 0.28),
+                                        .withOpacity(0.28),
                                     blurRadius: 18,
                                     offset: const Offset(0, 8),
                                   ),
@@ -333,7 +333,7 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                             color: item.fallbackSeedColor,
                             alignment: Alignment.center,
                             child: const Icon(
-                              Icons.Play_circle_fill_rounded,
+                              Icons.play_circle_rounded,
                               size: 40,
                               color: Colors.white,
                             ),
@@ -418,10 +418,10 @@ class _ScorePill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withValues(alpha: 0.35),
+        color: colorScheme.primaryContainer.withOpacity(0.35),
         borderRadius: BorderRadius.circular(99),
         border: Border.all(
-          color: colorScheme.primary.withValues(alpha: 0.45),
+          color: colorScheme.primary.withOpacity(0.45),
         ),
       ),
       child: Row(
