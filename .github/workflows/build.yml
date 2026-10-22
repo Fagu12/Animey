@@ -23,6 +23,18 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
+      - name: Recreate Android Gradle Setup
+        run: |
+          # 1. Remove the incomplete android folder synced from AI Studio
+          rm -rf android
+          
+          # 2. Re-scaffold the official Android native structure & Gradle wrapper
+          flutter create . --org com.animey.app --platforms=android
+          
+          # 3. Inject streaming permissions and cleartext traffic into the generated manifest
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>' android/app/src/main/AndroidManifest.xml
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+
       - name: Get dependencies
         run: flutter pub get
 
