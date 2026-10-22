@@ -1,0 +1,6 @@
+{
+  "name": "Animey",
+  "description": "An anime streaming and tracking app featuring Dynamic Material You Monet theming, customizable card and carousel architectures, and a floating glassmorphic navigation dock.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
