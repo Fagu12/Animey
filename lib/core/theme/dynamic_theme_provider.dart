@@ -117,7 +117,7 @@ class AnimeyThemeFactory {
         elevation: 0,
         centerTitle: false,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: kOledSurfaceContainer,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -125,7 +125,11 @@ class AnimeyThemeFactory {
           borderRadius: BorderRadius.circular(18),
         ),
       ),
-      dialogTheme: DialogTheme(
+      badgeTheme: BadgeThemeData(
+        backgroundColor: oledScheme.primary,
+        textColor: oledScheme.onPrimary,
+      ),
+      dialogTheme: DialogThemeData(
         backgroundColor: kOledSurface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
