@@ -67,7 +67,7 @@ class AnimeyThemeFactory {
       surfaceContainer: kOledSurfaceContainer,
       surfaceContainerHigh: kOledSurfaceHigh,
       surfaceContainerHighest: const Color(0xFF262635),
-      outline: baseScheme.primary.withValues(alpha: 0.28),
+      outline: baseScheme.primary.withOpacity(0.28),
       outlineVariant: const Color(0xFF2A2A38),
     );
 
@@ -117,7 +117,7 @@ class AnimeyThemeFactory {
         elevation: 0,
         centerTitle: false,
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: kOledSurfaceContainer,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -125,7 +125,7 @@ class AnimeyThemeFactory {
           borderRadius: BorderRadius.circular(18),
         ),
       ),
-      dialogTheme: DialogThemeData(
+      dialogTheme: DialogTheme(
         backgroundColor: kOledSurface,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(

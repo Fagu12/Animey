@@ -316,8 +316,8 @@ class _HeroCarouselState extends ConsumerState<HeroCarousel> {
                           boxShadow: isSelected
                               ? [
                                   BoxShadow(
-                                    color: colorScheme.primary
-                                        .withOpacity(0.28),
+                                    color:
+                                        colorScheme.primary.withOpacity(0.28),
                                     blurRadius: 18,
                                     offset: const Offset(0, 8),
                                   ),

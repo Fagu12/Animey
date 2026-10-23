@@ -60,7 +60,7 @@ class AnimeCard extends ConsumerWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.55),
+              color: colorScheme.outlineVariant.withOpacity(0.55),
               width: 1,
             ),
           ),
@@ -162,11 +162,11 @@ class AnimeCard extends ConsumerWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer.withValues(alpha: 0.94),
+                      color: colorScheme.primaryContainer.withOpacity(0.94),
                       borderRadius: BorderRadius.circular(10),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
+                          color: Colors.black.withOpacity(0.35),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -236,7 +236,7 @@ class AnimeCard extends ConsumerWidget {
             borderRadius: BorderRadius.circular(18),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
+                color: Colors.black.withOpacity(0.4),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -254,8 +254,8 @@ class AnimeCard extends ConsumerWidget {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.15),
-                      Colors.black.withValues(alpha: 0.88),
+                      Colors.black.withOpacity(0.15),
+                      Colors.black.withOpacity(0.88),
                     ],
                     stops: const [0.35, 0.65, 1.0],
                   ),
@@ -270,7 +270,7 @@ class AnimeCard extends ConsumerWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer.withValues(alpha: 0.92),
+                    color: colorScheme.primaryContainer.withOpacity(0.92),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -346,12 +346,12 @@ class AnimeCard extends ConsumerWidget {
           color: colorScheme.surfaceContainer,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: colorScheme.primary.withValues(alpha: 0.55),
+            color: colorScheme.primary.withOpacity(0.55),
             width: 1.3,
           ),
           boxShadow: [
             BoxShadow(
-              color: colorScheme.primary.withValues(alpha: 0.22),
+              color: colorScheme.primary.withOpacity(0.22),
               blurRadius: 16,
               spreadRadius: 1,
               offset: const Offset(0, 4),
@@ -377,7 +377,7 @@ class AnimeCard extends ConsumerWidget {
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.transparent,
-                            Colors.black.withValues(alpha: 0.75),
+                            Colors.black.withOpacity(0.75),
                           ],
                           stops: const [0.55, 1.0],
                         ),
@@ -405,7 +405,7 @@ class AnimeCard extends ConsumerWidget {
             Container(
               height: 30,
               decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: 0.85),
+                color: colorScheme.primary.withOpacity(0.85),
                 borderRadius: BorderRadius.circular(12),
               ),
               alignment: Alignment.center,

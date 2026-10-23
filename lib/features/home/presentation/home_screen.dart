@@ -238,7 +238,7 @@ class HomeScreen extends ConsumerWidget {
                 center: const Alignment(0.0, -0.82),
                 radius: 1.25,
                 colors: [
-                  colorScheme.primary.withValues(alpha: 0.22),
+                  colorScheme.primary.withOpacity(0.22),
                   kOledBackground,
                 ],
               ),
@@ -326,10 +326,10 @@ class HomeScreen extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: colorScheme.surfaceContainer.withValues(alpha: 0.88),
+              color: colorScheme.surfaceContainer.withOpacity(0.88),
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
-                color: colorScheme.outlineVariant.withValues(alpha: 0.55),
+                color: colorScheme.outlineVariant.withOpacity(0.55),
               ),
             ),
             child: Row(
@@ -485,12 +485,12 @@ class HomeScreen extends ConsumerWidget {
                     end: Alignment.bottomRight,
                     colors: [
                       colorScheme.surfaceContainerHigh,
-                      colorScheme.primaryContainer.withValues(alpha: 0.25),
+                      colorScheme.primaryContainer.withOpacity(0.25),
                     ],
                   ),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: colorScheme.primary.withValues(alpha: 0.30),
+                    color: colorScheme.primary.withOpacity(0.30),
                   ),
                 ),
                 child: Row(
@@ -593,7 +593,7 @@ class HomeScreen extends ConsumerWidget {
                               minHeight: 5,
                               backgroundColor: colorScheme
                                   .surfaceContainerHighest
-                                  .withValues(alpha: 0.7),
+                                  .withOpacity(0.7),
                               valueColor: AlwaysStoppedAnimation<Color>(
                                 colorScheme.primary,
                               ),

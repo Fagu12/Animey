@@ -76,15 +76,15 @@ class FloatingGlassDock extends ConsumerWidget {
               height: 68,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: colorScheme.surfaceContainer.withValues(alpha: 0.78),
+                color: colorScheme.surfaceContainer.withOpacity(0.78),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: colorScheme.primary.withValues(alpha: 0.24),
+                  color: colorScheme.primary.withOpacity(0.24),
                   width: 1.1,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.45),
+                    color: Colors.black.withOpacity(0.45),
                     blurRadius: 24,
                     offset: const Offset(0, 10),
                   ),
@@ -117,7 +117,7 @@ class FloatingGlassDock extends ConsumerWidget {
               margin: const EdgeInsets.symmetric(horizontal: 4),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? colorScheme.primaryContainer.withValues(alpha: 0.42)
+                    ? colorScheme.primaryContainer.withOpacity(0.42)
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(999),
               ),
