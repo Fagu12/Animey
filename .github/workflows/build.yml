@@ -24,33 +24,15 @@ jobs:
 
       - name: Scaffold Android Files Without Overwriting Project
         run: |
-          # 1. Back up pubspec.yaml
           cp pubspec.yaml pubspec.yaml.bak
-
-          # 2. Delete incomplete android directory
           rm -rf android
-
-          # 3. Create fresh Android project in a separate temp directory
           flutter create --platforms=android --org com.animey.app --project-name animey temp_scaffold
-          
-          # 4. Copy ONLY the android folder into our project
           cp -r temp_scaffold/android ./android
           rm -rf temp_scaffold
-
-          # 5. Restore original pubspec.yaml
           mv pubspec.yaml.bak pubspec.yaml
           sed -i 's/^name: .*/name: animey/' pubspec.yaml
-
-          # 6. Inject video streaming network permissions
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
-
-      - name: Fix Compatibility Syntax Across All Dart Files
-        run: |
-          # Automatically converts .withValues to .withOpacity across all generated widgets
-          find lib/ -type f -name "*.dart" -exec sed -i -E 's/\.withValues\(alpha:\s*([^)]+)\)/\.withOpacity(\1)/g' {} +
-          # Fix any remaining capitalized icon identifiers
-          find lib/ -type f -name "*.dart" -exec sed -i 's/Play_circle_fill_rounded/play_circle_fill_rounded/g' {} +
 
       - name: Get dependencies
         run: flutter pub get
